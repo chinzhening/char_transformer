@@ -64,11 +64,7 @@ class LSTM(nn.Module):
         # Token embeddings
         token_emb = nn.Embed(self.vocab_size, self.hidden_size)(x)  # (B, T, D)
 
-        # Positional embeddings
-        pos_indices = jnp.arange(T)[None, :]  # (1, T)
-        pos_emb = nn.Embed(self.max_length, self.hidden_size)(pos_indices)  # (1, T, D)
-
-        h = token_emb + pos_emb  # (B, T, D)
+        h = token_emb
 
         # Initialize LSTM states if not provided
         if initial_states is None:
