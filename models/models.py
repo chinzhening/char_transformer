@@ -19,30 +19,30 @@ import flax.linen as nn
 from flax.linen import attention as attn
 
 class MLP(nn.Module):
-        """Transformer feed-forward network (a.k.a. MLP block).
+    """Transformer feed-forward network (a.k.a. MLP block).
 
-        Structure: Dense(D -> 4D), GELU, Dense(4D -> D) by default.
-        The expansion factor can be adjusted with `mlp_ratio`.
+    Structure: Dense(D -> 4D), GELU, Dense(4D -> D) by default.
+    The expansion factor can be adjusted with `mlp_ratio`.
 
-        Args:
-            d_model: Hidden size D.
-            mlp_ratio: Expansion factor for the intermediate hidden size.
+    Args:
+        d_model: Hidden size D.
+        mlp_ratio: Expansion factor for the intermediate hidden size.
 
-        Input shape:  (B, T, D)
-        Output shape: (B, T, D)
-        """
+    Input shape:  (B, T, D)
+    Output shape: (B, T, D)
+    """
 
-        d_model: int
-        mlp_ratio: int = 4
+    d_model: int
+    mlp_ratio: int = 4
 
-        @nn.compact
-        def __call__(self, x):
-                # Expand channel dimension (D -> hidden), apply non-linearity, project back to D.
-                hidden = int(self.d_model * self.mlp_ratio)
-                x = nn.Dense(hidden)(x)
-                x = nn.gelu(x)
-                x = nn.Dense(self.d_model)(x)
-                return x
+    @nn.compact
+    def __call__(self, x):
+        # Expand channel dimension (D -> hidden), apply non-linearity, project back to D.
+        hidden = int(self.d_model * self.mlp_ratio)
+        x = nn.Dense(hidden)(x)
+        x = nn.gelu(x)
+        x = nn.Dense(self.d_model)(x)
+        return x
 
 class DecoderBlock(nn.Module):
     """A single decoder block (Pre-LayerNorm + Self-Attn + MLP + residuals).
