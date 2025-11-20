@@ -91,6 +91,7 @@ class DecoderOnlyTransformer(nn.Module):
     n_heads: int
     max_len: int
     mlp_ratio: int = 4
+    tie_weights: bool = False
 
     def setup(self):
         # Token embedding table E with shape (V, D)
@@ -138,7 +139,11 @@ class DecoderOnlyTransformer(nn.Module):
         # Final LayerNorm before output projection
         x = self.layerNorm_final(x)
 
-        # Output projection to logits over V tokens.
-        logits = self.project_to_vocab(x)
+        # Weight tying: project using token embedding matrix
+        if self.tie_weights:
+            logits = jnp.einsum('btd,vd->btv', x, self.tok_embed.embedding)
+        else:
+          # Output projection to logits over V tokens.
+          logits = self.project_to_vocab(x)
         
         return logits
