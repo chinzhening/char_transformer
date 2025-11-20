@@ -32,8 +32,9 @@ class DecoderBlock(nn.Module):
             num_heads=self.n_heads,
             use_bias=False,
             dropout_rate=self.dropout_rate,
-        )(h, mask=mask)
-        h = nn.Dropout(self.dropout_rate)(x, deterministic=deterministic) 
+        )(h, mask=mask, deterministic=deterministic)
+        
+        h = nn.Dropout(self.dropout_rate)(h, deterministic=deterministic) 
         x = x + h  # residual connection
 
         # MLP sublayer: Pre-LayerNorm -> MLP + dropout -> Residual add

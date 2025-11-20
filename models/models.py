@@ -127,7 +127,7 @@ class DecoderOnlyTransformer(nn.Module):
         # Optional separate output head if not weight-tying
         self.project_to_vocab = nn.Dense(self.vocab_size, use_bias=False)
 
-    def __call__(self, idx):
+    def __call__(self, idx, deterministic: bool = True):
         """Forward pass (causal-only).
 
         Args:
