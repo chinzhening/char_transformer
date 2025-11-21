@@ -55,16 +55,13 @@ class LSTM(nn.Module):
     vocab_size: int
     hidden_size: int
     num_layers: int
-    max_length: int
 
     @nn.compact
     def __call__(self, x, initial_states=None):
         B, T = x.shape  # Batch size and sequence length
 
         # Token embeddings
-        token_emb = nn.Embed(self.vocab_size, self.hidden_size)(x)  # (B, T, D)
-
-        h = token_emb
+        h = nn.Embed(self.vocab_size, self.hidden_size)(x)  # (B, T, D)
 
         # Initialize LSTM states if not provided
         if initial_states is None:
