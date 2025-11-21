@@ -1,0 +1,298 @@
+% \documentclass[11pt]{article}
+\documentclass[conference,12pt]{IEEEtran}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%% YOU PROBABLY DON"T NEED TO CHANGE ANYTHING HERE %%%%%%%%%%%%%%%%%%%
+\usepackage[authoryear]{natbib} % numbers, sort
+\usepackage{amsfonts, amsmath}
+\usepackage{graphicx}
+\usepackage{libertine} 
+\usepackage{fullpage}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{wrapfig}
+\usepackage{booktabs}
+\hypersetup{
+    colorlinks = true,
+    linkcolor = blue,
+    urlcolor  = blue,
+    citecolor = blue,
+    anchorcolor = blue}
+\urlstyle{same}
+\overfullrule=5pt
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%
+% ===== DOCUMENT STARTS HERE =======
+% you do not have to modify anything above
+% if you do not wish to (but you indeed can0
+%
+\begin{document}
+
+\title{DSA4212 Group Project: Training Dynamics of a Character-level LLM}
+\author{
+    \IEEEauthorblockN{Chin Zhe Ning}
+    \IEEEauthorblockA{
+        A0255895J \\
+        E0960565@u.nus.edu
+    }
+    \and
+    \IEEEauthorblockN{Hee Wei Ting}
+    \IEEEauthorblockA{
+        A0251951E \\
+        E0957539@u.nus.edu
+    }
+    \and
+    \IEEEauthorblockN{Abner Philip Then Yi Hao}
+    \IEEEauthorblockA{
+        A0265863R \\
+        E1070545@u.nus.edu
+    }
+}
+\date{\today}
+\maketitle
+
+%
+%
+\section{Introduction}
+In this report, we explore different deep learning architectures and their effectiveness in a character-level language modeling task. 
+The primary objective is to predict the next character in a sequence, focusing on the accuracy of predicting the last character.
+
+Through systematic hyperparameter tuning, architecture modifications and optimisation strategies, we aim to enhance model performance while analysing the trade-offs between computational efficiency and predictive accuracy. 
+We compare various transformer configurations including different positional encoding schemes and regularisation techniques, while also trying out the LSTM model to provide insights into the effectiveness of different approaches for the sequence prediction task.
+
+To evaluate these different models, we use the \textsc{text8} dataset, consisting of the first 100 million characters of a cleaned and pre-processed English Wikipedia dump, containing only lowercase letters \& spaces (27 unique characters). 
+Our training set is 90MB, while our test set is 5MB, providing a 90 : 5 split of the dataset for our model training. 
+Our goal is next-character prediction: given a sequence of $L$ characters, predicting the next character's probability distribution. 
+For this, the standard choice is to use the cross-entropy loss, and our optimisation objective is to use adaptive methods like Adam to minimise the cross-entropy loss, allocating a budget of 30 minutes of TPU v5e1 compute time on Google Colab for the final training run.
+
+\section{Transformer}
+
+The transformer architecture was proposed by eight scientists at Google in the paper "Attention is All You Need" \cite{DBLP:journals/corr/VaswaniSPUJGKP17}, and it relies on attention mechanisms rather than recurrence. 
+The stacked encoder and decoder layers process entire sequences in parallel rather than sequentially.
+
+The encoder consists of a multi-head self-attention mechanism, which allows the model to process an entire sequence of characters in parallel, computing attention weights simultaneously with the following equation:
+        
+    \[
+    \text{Attention(}Q, K, V\text{)} = \text{softmax}\Big(\frac{QK^T}{\sqrt{d_k}}\Big)V
+    \]
+            
+where $Q$, $K$ \& $V$ are matrices that projects each character's input embedding into the query, key \& value vector space respectively, while $d_k$ is the dimension of the keys. 
+Then, a position-wise Feed-Forward Network is applied independently to each position using the same parameters.
+
+The decoder contains a Masked Multi-Head Self-Attention which works similarly to the self-attention in the encoder, however it prevents positions from attending to subsequent positions, preserving the auto-regressive property of the generator.
+Next, Encoder-Decoder Attention enables the decoder to focus on relevant output from the encoder, and a 
+Position-wise Feed-Forward Network works similarly to that in the encoder.
+
+The supporting elements of the transformer model include Residual Connection \& Layer Normalisation which enable gradient flow through deep networks and stabilises the training dynamics, while Positional Encodings inject information about the token positions since the model lacks inherent sequence processing. 
+Scaled Dot-Product Attention is the attention mechanism that computes the probability scores between queries \& keys.
+
+\section{Experiments and Tuning}
+We use a v5e1 TPU provided by Google Colab for all training and evaluation. The complete source code for this project is hosted on GitHub
+\begin{center}
+\small
+\url{https://github.com/chinzhening/char_transformer}
+\end{center}
+Preliminary
+experiments were conducted to see how the base transformer model performs on the \textsc{text8}
+dataset up to 100,000 iterations and the effect of various modifications to the
+architecture and training procedure. For fair comparison across architectures, we maintain
+a fixed training budget of 300 seconds for each experiment training run.
+
+\subsection{Base Model}
+The base model has the following hyperparameters:
+\begin{itemize}
+    \item internal model dimensions of 128,
+    \item 8 attention heads,
+    \item 3 Transformer layers, 
+    \item and a maximum sequence length of 128
+\end{itemize}
+with a total parameter count of 616,832. 
+Internally, the model used learned positional embeddings (LPE) and GeLU activations in the MLP with a hidden dimension expansion ratio of 4. 
+Training was performed for 100,000 iterations (218.5s or 3 minutes and 38.5 seconds) with a batch size of 128, sequence length of 32 and constant learning rate of 0.001 with the Adam optimizer.
+
+The training and test loss history is shown in Figure \ref{fig:base_swiglu_loss_history} and the final training and test loss achieved at 100,000 iterations is 1.3155 and 1.3141 respectively.
+The final train and test accuracy achieved is 58.8\% and 59.0\% respectively, and the final last character test accuracy is 58.8\%.
+
+\subsection{SwiGLU}
+The base model uses GeLU activations in the hidden layers.
+Following \cite{shazeer2020gluvariantsimprovetransformer}, we use SwiGLU activation functions instead. 
+SwiGLU is a variant of the Gated Linear Unit (GLU) and has been shown to improve the performance of transformer models in most sequence modeling tasks. 
+For the modification, the MLP hidden dimension expansion ratio was adjusted to 8/3 to keep the parameter count similar to the base model. 
+All other hyperparameters and training procedure were kept the same as the base model, except increasing the batch size to 256 and learning rate to 0.00025 to reduce noise in the loss. 
+The SwiGLU model has a total parameter count of 616,958, which is roughly the same as the base model.
+
+After 245.7 seconds of training, the SwiGLU model achieved a final training and test loss of 1.2848 and 1.3263 respectively. 
+The final test accuracy is  58.2\%, about the same as base model. 
+The final last-character test accuracy is 60.1\%, higher than the base model. 
+From the loss history in Figure \ref{fig:base_swiglu_loss_history}, the loss convergence of the SwiGLU model is no better than the base model.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{assets/base_swiglu_loss_history-2.png}
+\caption{Training and test loss history of base model with SwiGLU activations}
+\label{fig:base_swiglu_loss_history}
+\centering
+\end{figure}
+
+\subsection{Postitional Embeddings}
+The base model uses learned positional embeddings (LPE) \cite{Radford2018ImprovingLU} to encode the position of each character in the input sequence. 
+Several LLMs have demonstrated that alternative positional embeddings such as sinusoidal positional embeddings (SPE) \cite{DBLP:journals/corr/VaswaniSPUJGKP17} and rotary positional embeddings (RoPE) \cite{DBLP:journals/corr/abs-2104-09864} can improve model performance.
+Both SPE and RoPE do not have learned parameters, which reduces the overall parameter count of the model.
+We compare the training and performance of SPE and RoPE against LPE used in the SwiGLU model.
+
+\subsubsection{Sinusoidal Positional Embeddings (SPE)}
+Since sinusoidal positional embeddings are not learned, the SwiGLU + SPE model has a lower parameter count of 600,574 compared to the SwiGLU + LPE model.
+After training for 100,000 iterations and 243.5 seconds, the SPE model achieved a test loss of 1.2992 and accuracy of 58.9\%, comparable to the SwiGLU + LPE model.
+The training and test loss history is shown in Figure \ref{fig:swiglu_pe_loss_history}.
+The last character accuracy is 61.7\%, similar to the SwiGLU + LPE model.
+
+
+\subsubsection{Rotary Postional Embeddings (RoPE)}
+The SwiGLU + RoPE model has a parameter count of 600,574, for the same reason as SPE. 
+A smaller learning rate of 0.001 was used to stabilise the training. 
+Unlike SPE and LPE, the RoPE model showed significant improvement in loss convergence.
+We show the training and test loss history for the SwiGLU + RoPE model after 100,000 iterations and 237.7 seconds in Figure \ref{fig:swiglu_pe_loss_history}.
+The RoPE model achieved a final test loss of 0.0480 and accuracy of 98.5\%, outperforming both the SPE and LPE models significantly.
+
+Interestingly, we observe that the last character test accuracy is only 52.1\%, significantly lower than the SwiGLU + LPE and SwiGLU + SPE models. 
+This indicates that the RoPE model might generalize poorly on the last character prediction task compared to the other models.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{assets/base_swiglu_pe.png}
+    \caption{Training and test loss history of SwiGLU model with LPE, SPE, and RoPE}
+    \label{fig:swiglu_pe_loss_history}
+\end{figure}
+
+A possible explanation for this is that the loss function
+used during training focuses on minimizing the average loss across all characters in the sequence, rather than encouraging the model to focus on the last character prediction.
+This could lead to suboptimal last character accuracy even though the overall test loss and accuracy are significantly better.
+To improve the generalization of the model, we experimented with using different loss functions to shift the training focus.
+
+\subsection{Loss Function}
+Since the loss function treats all positions equally, we tried a weighted cross-entropy loss to give higher importance to the last characters in the sequence. 
+A linear weighting scheme is used where the first character has weight 0.2 and the last character has weight 1.0.
+We train with a batch size of 256 and a learning rate of 0.000025 for 100,000 iterations. 
+A smaller learning rate was used to account for smaller loss scale.
+With the weighted loss, the SwiGLU + RoPE model still exhibits swift loss convergence in the training and test loss and the final last character test accuracy achieved is 55.4\% compared to 52.1\% previously.
+However, it is hard to discern whether this is due to noise, or if it is an actual improvement in shifting the training focus. 
+From Figure \ref{fig:swiglu_rope_weighted_loss}, we observe that the last-character test accuracy is very noisy, and the loss bottoms out.
+This indicates that the model has reached its capacity limit, and further tuning and will not yield significant improvements. 
+
+Due to this, we return our attention to LPE based models.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{assets/swiglu_rope_weighted_loss-2.png}
+    \caption{SwiGLU RoPE + Weighted Loss: loss history (top), and last-character test accuracy (bottom).}
+    \label{fig:swiglu_rope_weighted_loss}
+\end{figure}
+
+\subsection{Capacity}
+Taking the SwiGLU model, we increase the model's capacity by doubling the internal model dimensions from 128 to 256. The new model has 2,412,796 parameters, but the learning rate and batch size are unchanged from the SwiGLU + LPE model. 
+From Figure \ref{fig:base_swiglu_scale_loss_history}, we see that the loss converges faster than the base model. In addition, the final last-character test accuracy appears to be less noisy, and gradually increasing.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{assets/base_swiglu_scale_loss_history.png}
+    \caption{SwiGLU with hidden dimension of 256}
+    \label{fig:base_swiglu_scale_loss_history}
+\end{figure}
+
+
+
+\subsection{Weight Tying}
+We also experimented with weight tying to improve generalization but it did not make much difference, as seen in Figure \ref{fig:placeholder}. The parameter count was reduced to 2,405,884.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{assets/base_swiglu_scale_wt_acc_loss.png}
+    \caption{Last Character Accuracy for model with SwiGLU (blue) \& SwiGLU + weight tying (orange)}
+    \label{fig:placeholder}
+\end{figure}
+
+
+\subsection{Optimizer}
+
+
+The optimizer combines gradient clipping with AdamW, a variant of the Adam optimiser that incorporates weight decay, and a warmup-cosine learning rate schedule. 
+Gradients are clipped to prevent instability, while AdamW adaptively updates parameters with decoupled weight decay to stabilize training. 
+Warmup and cosine decay avoid large initial updates, promoting smoother convergence \cite{liu2025theoreticalanalysislearningrate}, better generalization, and lower test loss.
+Training to 100,000 iterations, we use peak learning rate of 1e-3, end learning rate of 1e-5, and 5,000 warm up steps. The SwiGLU model + WT with this warmup-cosine scheduler demonstrates a faster drop in loss than the Adam optimizer with a constant learning rate of 2.5e-5 in the first 10 seconds of training as
+seen in Figure \ref{fig:adamw_cosine_warmup}.
+The losses are about the same up until 150s after which the scheduled learning rate improves on the loss marginally.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{assets/base_swiglu_scale_wt_cosine_wd0.01.png}
+    \caption{AdamW optimizer with weight decay 0.01, warmup-cosine learning rate schedule.}
+    \label{fig:adamw_cosine_warmup}
+\end{figure}
+
+\subsection{Final Model}
+Our final SwiGLU + LPE model, trained with weight tying and the warmup–cosine AdamW optimizer, was run for 500,000 iterations (1965.2s or 33 minutes), after which it appeared to reach its performance ceiling. The model achieved a final training and test loss of 1.1435 and 1.2153 respectively, with final test accuracy of 61.8\% and last-character accuracy of 66.7\%. The loss and accuracy history is plotted in Figure \ref{fig:final_train_loss_acc}. To verify whether further improvements were possible, training was resumed for an additional 100,000 iterations using the saved checkpoint; however, the results after this extension showed negligible gains, with the test loss essentially unchanged at 1.2063 and last-character accuracy fluctuating randomly, see Figure \ref{fig:noise}. The accuracy oscillates within a narrow band rather than improving, indicating the model has fully saturated its representational capacity. Together, these results confirm that the model has effectively bottomed out, and additional training is unlikely to yield further performance gains.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{assets/final_train_loss_acc.png}
+    \caption{Final Model Loss History \& Last-character Test Accuracy}
+    \label{fig:final_train_loss_acc}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{assets/additional_train_results.png}
+    \caption{Test Loss \& Accuracy for iterations 500,000 - 600,000}
+    \label{fig:noise}
+\end{figure}
+
+\section{Discussion}
+
+\subsection{Interpretation of Results}
+
+
+
+\subsection{Hardware efficiency}
+
+Our modifications to the transformer components, such as SwiGLU activations, weight tying, and larger hidden dimensions, increased the model’s expressivity and helped it converge more effectively, but they also raised the compute cost of each training step. Replacing GeLU with SwiGLU changes the structure of the feed-forward block by adding extra projections and element-wise operations. 
+This leads to an increased number of small kernels and additional memory traffic, which GPUs and TPUs handle less efficiently. 
+As the hardware spends more time on memory movement, kernel launches, and synchronization rather than sustained computation, overall utilisation drops. 
+Consequently, while the model learned better, the actual training throughput decreased due to reduced hardware efficiency.
+
+Furthermore, we tried to apply Bayesian Optimisation to tune the hypeparameters of the LSTM model (which is discussed in \ref{lstm}).
+However, we were not able complete this tuning process due to the insufficient compute resources available to us through Colab. We encountered  memory overflow issues before all of the sampled hyperparameters meaningfully converged.
+
+
+\subsection{Comparisons with Long Short-Term Memory (LSTM)} \label{lstm}
+
+Since LSTM models were first proposed \cite{10.5555/2998981.2999048}, LSTM models were traditionally used for next in-sequence prediction tasks. 
+We performed testing on a LSTM model with a similar amount of parameters (up to 2 million) and compared their results with our transformer model. 
+Our inputs are pre-processed by a token embedding layer, and then they are subsequently fed into LSTM cells, with forget gates and hidden states that allow information to propagate throughout the whole model, fixing the vanishing gradient problem that plagued previous recurrent models. 
+
+Our LSTM model with internal model dimensions of 256 \& 4 LSTM cells managed to get a peak last character test accuracy of around 65\%, as seen in \ref{fig:lstm_performance}, performing slightly worse than our final model. It is also interesting to note from our results that increasing the number of layers without changing the model dimensions may not necessarily improve the performance of the model.
+\begin{figure}[h]
+    \includegraphics[width=\linewidth]{assets/lstm_performance.png}
+    \caption{LSTM training \& test loss (left) and overall \& last character accuracy (right)}
+    \label{fig:lstm_performance}
+\end{figure}
+
+We also tested on a bidirectional variant as first proposed in \cite{1556215}. 
+It delivered very promising results, with a very high overall accuracy (more than 90\%), but a last character accuracy roughly similar to that of the regular LSTM model. 
+However, after further observing the architecture, we realised that the bidirectional LSTM, with forward \& backward LSTMs, has information about future characters, which violates the causality required for autoregressive generation. 
+Transformers adhere to this causality with the implementation of a causal mask. 
+
+\subsection{Future improvements}
+A natural extension from a character-level LLM would be exploring larger, more expressive token units. 
+Character level models offer simplicity \& an extremely small vocabulary, but they force the network to model long-range dependencies over very long sequences, and to infer word-level structures purely from characters. 
+Using subword-level tokens or byte-level units can shorten effective sequence lengths, allowing attention layers to allocate more capacity to semantic \& syntactic relationships, rather than spelling reconstruction.
+
+Empirically, larger token units yield lower perplexity, faster convergence \& more coherent long-range generation, since each token carries richer information, and sequences become shorter \& easier to model.
+Future work can compare character-level training with hybrid or adaptive tokenization strategies to assess whether these approaches improve efficiency \& output quality, while retaining the open-vocabulary advantages of character-level models.
+
+\bibliographystyle{alpha}
+\bibliography{references}
+
+\end{document}
