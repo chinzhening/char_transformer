@@ -23,22 +23,24 @@ class SwiGLUMLP(nn.Module):
 
     d_model: int
     mlp_ratio: int = 4
+    dropout_rate: float = 0.0
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, deterministic: bool = True):
         hidden = int(self.d_model * self.mlp_ratio)
         
         # Project to 2*hidden for SwiGLU
         x_proj = nn.Dense(2 * hidden)(x)
-        
-        # Split channels
         x1, x2 = jnp.split(x_proj, 2, axis=-1)
         
         # SwiGLU activation: x1 * silu(x2)
         x = x1 * nn.silu(x2)
-        
+
         # Project back to d_model
         x = nn.Dense(self.d_model)(x)
+
+        # MLP dropout
+        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
         return x
 
 
@@ -47,21 +49,28 @@ class DecoderBlock(nn.Module):
     d_model: int
     n_heads: int
     mlp_ratio: int = 4
+    dropout_rate: float = 0.0
 
     @nn.compact
-    def __call__(self, x, *, mask=None):
+    def __call__(self, x, *, mask=None, deterministic: bool = True):
         # Attention sublayer: Pre-LayerNorm -> Self-Attention -> Residual add
         h = nn.LayerNorm()(x)
         h = nn.SelfAttention(
             num_heads=self.n_heads,
             use_bias=False,
-        )(h, mask=mask)
+            dropout_rate=self.dropout_rate,
+        )(h, mask=mask, deterministic=deterministic)
+        
+        h = nn.Dropout(rate=self.dropout_rate)(h, deterministic=deterministic)
         x = x + h  # residual connection
+
 
         # MLP sublayer: Pre-LayerNorm -> MLP -> Residual add
         h = nn.LayerNorm()(x)
-        h = SwiGLUMLP(self.d_model, mlp_ratio=self.mlp_ratio)(h)
+        h = SwiGLUMLP(self.d_model, mlp_ratio=self.mlp_ratio,
+                      dropout_rate=self.dropout_rate)(h, deterministic=deterministic)
         x = x + h  # residual connection
+        
         return x
 
 class DecoderOnlyTransformer(nn.Module):
@@ -91,6 +100,7 @@ class DecoderOnlyTransformer(nn.Module):
     n_heads: int
     max_len: int
     mlp_ratio: int = 4
+    dropout_rate: float = 0.0
     tie_weights: bool = False
 
     def setup(self):
@@ -106,7 +116,15 @@ class DecoderOnlyTransformer(nn.Module):
         )
 
         # Stack of decoder blocks
-        self.blocks = [DecoderBlock(d_model=self.d_model, n_heads=self.n_heads, mlp_ratio=self.mlp_ratio) for _ in range(self.n_layers)]
+        self.blocks = [
+            DecoderBlock(
+                d_model=self.d_model,
+                n_heads=self.n_heads,
+                mlp_ratio=self.mlp_ratio,
+                dropout_rate=self.dropout_rate,
+              )
+              for _ in range(self.n_layers)
+        ]
 
         # Final LayerNorm before projecting to logits
         self.layerNorm_final = nn.LayerNorm()
@@ -114,6 +132,7 @@ class DecoderOnlyTransformer(nn.Module):
         # Optional separate output head if not weight-tying
         self.project_to_vocab = nn.Dense(self.vocab_size, use_bias=False)
 
+    @nn.compact
     def __call__(self, idx, deterministic: bool = True):
         """Forward pass (causal-only).
 
@@ -128,13 +147,19 @@ class DecoderOnlyTransformer(nn.Module):
         # Token + positional embeddings -> (B, T, D)
         x = self.tok_embed(idx) + self.positional_embed[:T]
 
+        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
+
         # Build attention mask: strictly causal (lower-triangular), no padding mask.
         causal = attn.make_causal_mask(jnp.ones((B, T), dtype=bool))
-        mask = causal
 
-        # Run the stack of decoder blocks
-        for blk in self.blocks:
-            x = blk(x, mask=mask)
+        # Stack of decoder blocks
+        for i in range(self.n_layers):
+            x = DecoderBlock(
+                d_model=self.d_model,
+                n_heads=self.n_heads,
+                mlp_ratio=self.mlp_ratio,
+                dropout_rate=self.dropout_rate
+            )(x, mask=causal, deterministic=deterministic)
 
         # Final LayerNorm before output projection
         x = self.layerNorm_final(x)
@@ -143,7 +168,7 @@ class DecoderOnlyTransformer(nn.Module):
         if self.tie_weights:
             logits = jnp.einsum('btd,vd->btv', x, self.tok_embed.embedding)
         else:
-          # Output projection to logits over V tokens.
-          logits = self.project_to_vocab(x)
+            # Output projection to logits over V tokens.
+            logits = self.project_to_vocab(x)
         
         return logits
